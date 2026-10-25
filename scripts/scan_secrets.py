@@ -8,6 +8,7 @@ passwords, or live environment variables leak into version control.
 import os
 import re
 import sys
+import subprocess
 from pathlib import Path
 
 # Patterns indicating potential secrets
@@ -34,6 +35,19 @@ IGNORED_PATHS = {
     "scan_secrets.py",
 }
 
+def is_env_tracked() -> bool:
+    """Check if .env is tracked in git (which would be a violation)."""
+    try:
+        res = subprocess.run(
+            ["git", "ls-files", ".env"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return bool(res.stdout.strip())
+    except Exception:
+        return False
+
 def scan_file(filepath: Path) -> list[str]:
     findings = []
     try:
@@ -44,7 +58,6 @@ def scan_file(filepath: Path) -> list[str]:
     for pattern, description in SECRET_PATTERNS:
         matches = re.finditer(pattern, content)
         for match in matches:
-            # Check for dummy placeholder markers
             matched_str = match.group(0)
             if "your_" in matched_str.lower() or "example" in matched_str.lower() or "dummy" in matched_str.lower():
                 continue
@@ -55,14 +68,16 @@ def main() -> int:
     root_dir = Path(__file__).resolve().parent.parent
     violations = {}
 
+    # Critical check: is .env accidentally tracked in git?
+    if is_env_tracked():
+        violations[".env"] = ["CRITICAL: .env file is tracked in git! It must be removed from git tracking."]
+
     for path in root_dir.rglob("*"):
         if path.is_file():
-            # Skip ignored paths
+            # Skip ignored paths and local gitignored .env files
             if any(part in IGNORED_PATHS for part in path.parts):
                 continue
-            # Specifically forbid committing .env or any .env.* except .env.example
             if path.name.startswith(".env") and path.name != ".env.example":
-                violations[str(path)] = ["CRITICAL: .env file detected! It must never be committed to git."]
                 continue
 
             findings = scan_file(path)
@@ -75,7 +90,7 @@ def main() -> int:
             print(f"  File: {file}")
             for issue in issues:
                 print(f"    - {issue}")
-        print("\nPlease remove these secrets or add them to .gitignore before committing.\n")
+        print("\nPlease remove these secrets before committing.\n")
         return 1
 
     print("[PASSED] Secret scan clean. No leaked credentials detected.")
