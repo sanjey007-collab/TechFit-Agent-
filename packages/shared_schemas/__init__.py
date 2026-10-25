@@ -1,0 +1,48 @@
+"""
+Shared domain models and schemas for TechFit Agent.
+"""
+from .models import (
+    PartType,
+    DeviceIdentityStatus,
+    CompatibilityVerdict,
+    RuleStatus,
+    ProposalStatus,
+    ActionStatus,
+    VerificationStatus,
+    CheckRequest,
+    ClarifyRequest,
+    RuleComparison,
+    EvidenceItem,
+    CompatibilityReport,
+    CartProposalCreate,
+    CartProposalResponse,
+    CartApprovalRequest,
+    CartApprovalResponse,
+    CartVerificationResponse,
+    TestRunItem,
+    TestRunSummary,
+    ConfigStatusResponse,
+)
+
+__all__ = [
+    "PartType",
+    "DeviceIdentityStatus",
+    "CompatibilityVerdict",
+    "RuleStatus",
+    "ProposalStatus",
+    "ActionStatus",
+    "VerificationStatus",
+    "CheckRequest",
+    "ClarifyRequest",
+    "RuleComparison",
+    "EvidenceItem",
+    "CompatibilityReport",
+    "CartProposalCreate",
+    "CartProposalResponse",
+    "CartApprovalRequest",
+    "CartApprovalResponse",
+    "CartVerificationResponse",
+    "TestRunItem",
+    "TestRunSummary",
+    "ConfigStatusResponse",
+]

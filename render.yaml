@@ -1,0 +1,101 @@
+services:
+  # -------------------------------------------------------------
+  # 1. Frontend Web Application (React + Vite + Tailwind)
+  # -------------------------------------------------------------
+  - type: web
+    name: techfit-web
+    runtime: static
+    buildCommand: cd apps/web && npm install && npm run build
+    staticPublishPath: apps/web/dist
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: techfit-api
+          property: host
+      - key: VITE_MOCK_STORE_URL
+        fromService:
+          type: web
+          name: techfit-mock-store
+          property: host
+
+  # -------------------------------------------------------------
+  # 2. TechFit Backend Agent Orchestrator & Rule Engine API
+  # -------------------------------------------------------------
+  - type: web
+    name: techfit-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python -m apps.api.seed
+    startCommand: uvicorn apps.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: techfit-db
+          property: connectionString
+      - key: MOCK_STORE_URL
+        fromService:
+          type: web
+          name: techfit-mock-store
+          property: host
+      - key: MOCK_STORE_SERVICE_TOKEN
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: SEARCH_PROVIDER
+        value: serper
+      - key: SEARCH_API_KEY
+        sync: false
+      - key: PRODUCT_DETAILS_PROVIDER
+        value: serpapi
+      - key: PRODUCT_DETAILS_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: techfit-web
+          property: host
+
+  # -------------------------------------------------------------
+  # 3. Independent Mock Shopping Store Service
+  # -------------------------------------------------------------
+  - type: web
+    name: techfit-mock-store
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python -m apps.mock_store.seed
+    startCommand: uvicorn apps.mock_store.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: MOCK_STORE_DATABASE_URL
+        value: sqlite+aiosqlite:///./mock_store.db
+      - key: MOCK_STORE_SERVICE_TOKEN
+        sync: false
+
+# ---------------------------------------------------------------
+# 4. Managed PostgreSQL Database
+# ---------------------------------------------------------------
+databases:
+  - name: techfit-db
+    databaseName: techfit
+    user: techfit_user
+    plan: free
