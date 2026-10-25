@@ -45,6 +45,12 @@ export async function runCompatibilityCheck(payload: {
   return resp.json();
 }
 
+export async function fetchCheckById(checkId: string): Promise<CompatibilityReport> {
+  const resp = await fetch(`${API_BASE}/api/checks/${checkId}`);
+  if (!resp.ok) throw new Error(`Failed to load check: ${resp.status}`);
+  return resp.json();
+}
+
 export async function clarifyCheck(checkId: string, payload: {
   clarified_model?: string;
   clarified_variant?: string;

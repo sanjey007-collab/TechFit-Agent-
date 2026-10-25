@@ -13,7 +13,8 @@ import {
   runCompatibilityCheck,
   clarifyCheck,
   approveProposal,
-  fetchCart
+  fetchCart,
+  fetchCheckById
 } from "./api";
 import type { CompatibilityReport, CartState, PartType } from "./types";
 
@@ -128,13 +129,8 @@ export function App() {
       // Refresh cart
       await loadCartState();
 
-      // Refresh report
-      const updated = await runCompatibilityCheck({
-        device_brand: activeReport.resolved_device_brand,
-        device_model: activeReport.resolved_device_model || "",
-        part_type: activeReport.part_type,
-        cart_id: "default-cart"
-      });
+      // Refresh report with updated verification receipt
+      const updated = await fetchCheckById(activeReport.check_id);
       setActiveReport(updated);
     } catch (err: any) {
       alert(`Approval execution error: ${err.message || err}`);

@@ -341,12 +341,13 @@ async def seed_backend(custom_engine=None, custom_session_factory=None):
     async with use_session_factory() as session:
         # 1. Seed Devices and Variants
         for d_data in OFFICIAL_DEVICES:
-            variants = d_data.pop("variants", [])
-            stmt = select(Device).where(Device.id == d_data["id"])
+            d_copy = dict(d_data)
+            variants = d_copy.pop("variants", [])
+            stmt = select(Device).where(Device.id == d_copy["id"])
             res = await session.execute(stmt)
             dev = res.scalar_one_or_none()
             if not dev:
-                dev = Device(**d_data)
+                dev = Device(**d_copy)
                 session.add(dev)
             for v_data in variants:
                 v_stmt = select(DeviceVariant).where(DeviceVariant.id == v_data["id"])

@@ -119,12 +119,28 @@ async def _build_report(check: Check, db: AsyncSession) -> CompatibilityReport:
         for r in rules
     ]
 
+    device_brand = ""
+    device_model = ""
+    if check.resolved_device_id:
+        dev_res = await db.execute(select(Device).where(Device.id == check.resolved_device_id))
+        dev = dev_res.scalar_one_or_none()
+        if dev:
+            device_brand = dev.brand
+            device_model = dev.model_family
+    elif check.user_input_json:
+        try:
+            u_in = json.loads(check.user_input_json)
+            device_brand = u_in.get("device_brand", "")
+            device_model = u_in.get("device_model", "")
+        except Exception:
+            pass
+
     return CompatibilityReport(
         check_id=check.id,
         request_id=check.request_id,
         identity_status=DeviceIdentityStatus(check.identity_status),
-        resolved_device_brand=check.resolved_device_id,
-        resolved_device_model=check.resolved_variant_id,
+        resolved_device_brand=device_brand or check.resolved_device_id,
+        resolved_device_model=device_model or check.resolved_variant_id,
         resolved_variant=check.resolved_variant_id,
         part_type=PartType(check.part_type),
         verdict=CompatibilityVerdict(check.verdict),
