@@ -16,6 +16,11 @@ logger = logging.getLogger("techfit.api")
 async def lifespan(app: FastAPI):
     logger.info("Initializing TechFit Agent API...")
     await seed_backend()
+    try:
+        from apps.mock_store.seed import seed_mock_store
+        await seed_mock_store()
+    except Exception as e:
+        logger.warning(f"Mock store initial seed warning: {e}")
     logger.info("Database migration & seed ready.")
     yield
     logger.info("Shutting down TechFit Agent API.")
