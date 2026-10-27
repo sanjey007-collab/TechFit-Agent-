@@ -10,7 +10,7 @@ import httpx
 from ..database import get_db
 from ..models import TestRun
 from ..config import settings
-from ..services.store_client import get_store_http_client
+from ..services.store_client import get_store_http_client, get_internal_store_client
 from .checks import create_check, clarify_check
 from .cart import approve_cart_proposal
 from packages.shared_schemas.models import (
@@ -25,8 +25,16 @@ async def _reset_store_cart(cart_id: str):
     url = f"{settings.mock_store_base_url.rstrip('/')}/store/cart/{cart_id}"
     headers = {"Authorization": f"Bearer {settings.MOCK_STORE_SERVICE_TOKEN}"}
     try:
-        async with get_store_http_client(timeout=5.0) as client:
-            await client.delete(url, headers=headers)
+        resp = None
+        try:
+            async with get_store_http_client(timeout=5.0) as client:
+                resp = await client.delete(url, headers=headers)
+        except Exception:
+            pass
+        if resp is None or resp.status_code in (502, 503, 504):
+            internal_url = f"http://mock-store-internal/store/cart/{cart_id}"
+            async with get_internal_store_client(timeout=5.0) as client:
+                await client.delete(internal_url, headers=headers)
     except Exception:
         pass
 
@@ -34,10 +42,18 @@ async def _get_cart_item_count(cart_id: str) -> int:
     url = f"{settings.mock_store_base_url.rstrip('/')}/store/cart/{cart_id}"
     headers = {"Authorization": f"Bearer {settings.MOCK_STORE_SERVICE_TOKEN}"}
     try:
-        async with get_store_http_client(timeout=5.0) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200:
-                return resp.json().get("item_count", 0)
+        resp = None
+        try:
+            async with get_store_http_client(timeout=5.0) as client:
+                resp = await client.get(url, headers=headers)
+        except Exception:
+            pass
+        if resp is None or resp.status_code in (502, 503, 504):
+            internal_url = f"http://mock-store-internal/store/cart/{cart_id}"
+            async with get_internal_store_client(timeout=5.0) as client:
+                resp = await client.get(internal_url, headers=headers)
+        if resp is not None and resp.status_code == 200:
+            return resp.json().get("item_count", 0)
     except Exception:
         pass
     return 0

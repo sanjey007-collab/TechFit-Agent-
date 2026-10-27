@@ -6,7 +6,7 @@ from ..config import settings
 from ..models import CartAction, VerificationResult, CartProposal
 from packages.shared_schemas.models import VerificationStatus
 
-from ..services.store_client import get_store_http_client
+from ..services.store_client import get_store_http_client, get_internal_store_client
 
 async def verify_cart_state(
     action: CartAction,
@@ -33,29 +33,46 @@ async def verify_cart_state(
     details = ""
 
     try:
-        async with get_store_http_client(timeout=10.0) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                items = data.get("items", [])
-                # Search for expected SKU in cart
-                matched_item = next((item for item in items if item.get("sku") == expected_sku), None)
-                if matched_item:
-                    observed_sku = matched_item.get("sku")
-                    observed_qty = matched_item.get("quantity", 0)
+        resp = None
+        try:
+            async with get_store_http_client(timeout=10.0) as client:
+                resp = await client.get(url, headers=headers)
+        except Exception:
+            pass
 
-                    if observed_qty == expected_qty:
-                        verified_status = VerificationStatus.VERIFIED
-                        details = f"Cart state verified independently: remote cart contains {observed_qty}x SKU '{observed_sku}'."
-                    else:
-                        verified_status = VerificationStatus.FAILED
-                        details = f"Quantity mismatch: expected {expected_qty}x, but remote cart has {observed_qty}x."
+        # Automatic resilient fallback if external mock store fails or returns 502/503/504
+        if resp is None or resp.status_code in (502, 503, 504):
+            try:
+                internal_url = f"http://mock-store-internal/store/cart/{cart_id}"
+                async with get_internal_store_client(timeout=10.0) as internal_client:
+                    resp = await internal_client.get(internal_url, headers=headers)
+            except Exception:
+                pass
+
+        if resp is not None and resp.status_code == 200:
+            data = resp.json()
+            items = data.get("items", [])
+            # Search for expected SKU in cart
+            matched_item = next((item for item in items if item.get("sku") == expected_sku), None)
+            if matched_item:
+                observed_sku = matched_item.get("sku")
+                observed_qty = matched_item.get("quantity", 0)
+
+                if observed_qty == expected_qty:
+                    verified_status = VerificationStatus.VERIFIED
+                    details = f"Cart state verified independently: remote cart contains {observed_qty}x SKU '{observed_sku}'."
                 else:
                     verified_status = VerificationStatus.FAILED
-                    details = f"Independent verifier alert: Mock store reported success, but SKU '{expected_sku}' is NOT present in cart."
+                    details = f"Quantity mismatch: expected {expected_qty}x, but remote cart has {observed_qty}x."
             else:
                 verified_status = VerificationStatus.FAILED
-                details = f"Mock store returned HTTP {resp.status_code} during independent cart verification: {resp.text[:150]}"
+                details = f"Independent verifier alert: Mock store reported success, but SKU '{expected_sku}' is NOT present in cart."
+        elif resp is not None:
+            verified_status = VerificationStatus.FAILED
+            details = f"Mock store returned HTTP {resp.status_code} during independent cart verification: {resp.text[:150]}"
+        else:
+            verified_status = VerificationStatus.FAILED
+            details = "Mock store connection failed during verification."
     except Exception as e:
         verified_status = VerificationStatus.FAILED
         details = f"Independent verifier network connection failure to Mock Store: {str(e)}"

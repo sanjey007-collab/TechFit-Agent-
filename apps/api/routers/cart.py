@@ -11,7 +11,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import CartProposal, Approval, CartAction, VerificationResult, Check, Product
 from ..services.verifier import verify_cart_state
-from ..services.store_client import get_store_http_client
+from ..services.store_client import get_store_http_client, get_internal_store_client
 from packages.shared_schemas.models import (
     CartProposalCreate, CartProposalResponse, CartApprovalRequest,
     CartApprovalResponse, ProposalStatus, ActionStatus, CartVerificationResponse,
@@ -165,19 +165,33 @@ async def approve_cart_proposal(
         "idempotency_key": req.idempotency_key
     }
 
+    resp = None
     try:
         async with get_store_http_client(timeout=10.0) as client:
             resp = await client.post(store_url, json=payload, headers=headers)
-            action.response_payload_json = resp.text
-            if resp.status_code == 200:
-                action.status = "EXECUTED"
-                proposal.status = "EXECUTED"
-            else:
-                action.status = "FAILED"
-                proposal.status = "REJECTED"
     except Exception as e:
-        action.status = "FAILED"
         action.response_payload_json = json.dumps({"error": str(e)})
+
+    # Automatic resilient fallback if external mock store fails or returns 502/503/504
+    if resp is None or resp.status_code in (502, 503, 504):
+        try:
+            internal_url = f"http://mock-store-internal/store/cart/{proposal.cart_id}/items"
+            async with get_internal_store_client(timeout=10.0) as internal_client:
+                resp = await internal_client.post(internal_url, json=payload, headers=headers)
+        except Exception as e:
+            action.response_payload_json = json.dumps({"error": str(e)})
+
+    if resp is not None:
+        action.response_payload_json = resp.text
+        if resp.status_code == 200:
+            action.status = "EXECUTED"
+            proposal.status = "EXECUTED"
+        else:
+            action.status = "FAILED"
+            proposal.status = "REJECTED"
+    else:
+        action.status = "FAILED"
+        proposal.status = "REJECTED"
 
     await db.commit()
 
@@ -213,11 +227,24 @@ async def get_cart_state(cart_id: str):
     headers = {
         "Authorization": f"Bearer {settings.MOCK_STORE_SERVICE_TOKEN}"
     }
+    resp = None
     try:
         async with get_store_http_client(timeout=10.0) as client:
             resp = await client.get(store_url, headers=headers)
-            if resp.status_code == 200:
-                return resp.json()
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Cannot reach mock store: {str(e)}")
+    except Exception:
+        pass
+
+    # Automatic resilient fallback if external mock store fails or returns 502/503/504
+    if resp is None or resp.status_code in (502, 503, 504):
+        try:
+            internal_url = f"http://mock-store-internal/store/cart/{cart_id}"
+            async with get_internal_store_client(timeout=10.0) as internal_client:
+                resp = await internal_client.get(internal_url, headers=headers)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Cannot reach mock store: {str(e)}")
+
+    if resp is not None and resp.status_code == 200:
+        return resp.json()
+    if resp is not None:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    raise HTTPException(status_code=503, detail="Mock store unavailable")
